@@ -2,7 +2,12 @@
 
 Simple server that periodically scrapes monit status and exports checks information via HTTP for Prometheus.
 
-To run it:
+Build it:
+```bash
+go build
+```
+
+Run it:
 
 ```bash
 ./monit_exporter [flags]

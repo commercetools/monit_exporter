@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/log"
 	"golang.org/x/net/html/charset"
@@ -35,6 +34,8 @@ var serviceTypes = map[int]string{
 	7: "program with path",
 }
 
+var response monitXML
+
 type monitXML struct {
 	MonitServices []monitService `xml:"service"`
 }
@@ -54,76 +55,90 @@ type Exporter struct {
 	mutex  sync.RWMutex
 	client *http.Client
 
-	scrapeFailures prometheus.Counter
-	checkStatus    *prometheus.GaugeVec
+	up          prometheus.Gauge
+	checkStatus *prometheus.GaugeVec
 }
 
-// Returns an initialized Exporter.
-func NewExporter(uri string) *Exporter {
-	return &Exporter{
-		URI: uri,
-		scrapeFailures: prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "exporter_scrape_failures_total",
-			Help:      "Number of errors while scraping monit status.",
-		}),
-		checkStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "service_check",
-			Help:      "Monit service check info",
-		},
-			[]string{"check_name", "type", "monitored"},
-		),
-		client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
-			},
+func FetchMonitStatus(uri string) ([]byte, error) {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
 		},
 	}
-}
-
-// Describe describes all the metrics ever exported by the monit exporter. It
-// implements prometheus.Collector.
-func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
-	e.scrapeFailures.Describe(ch)
-	e.checkStatus.Describe(ch)
-}
-
-func (e *Exporter) collect(ch chan<- prometheus.Metric) error {
-	resp, err := e.client.Get(e.URI)
+	resp, err := client.Get(uri)
 	if err != nil {
-		return fmt.Errorf("Error scraping monit: %v", err)
+		//		log.Fatal("Unable to fetch monit status")
+		log.Error("Unable to fetch monit status")
+		return nil, err
 	}
-
-	defer resp.Body.Close()
-
 	data, err := ioutil.ReadAll(resp.Body)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		if err != nil {
-			data = []byte(err.Error())
-		}
-		return fmt.Errorf("Status %s (%d): %s", resp.Status, resp.StatusCode, data)
+	if err != nil {
+		log.Fatal("Unable to read monit status")
+		return nil, err
 	}
+	defer resp.Body.Close()
+	return data, nil
+}
 
-	var response monitXML
+func ParseMonitStatus(data []byte) error {
 	reader := bytes.NewReader(data)
 	decoder := xml.NewDecoder(reader)
 
 	// Parsing status results to structure
 	decoder.CharsetReader = charset.NewReaderLabel
-	err = decoder.Decode(&response)
+	err := decoder.Decode(&response)
 
+	return err
+}
+
+// Returns an initialized Exporter.
+func NewExporter(uri string) (*Exporter, error) {
+
+	return &Exporter{
+		URI: uri,
+		up: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "exporter_up",
+			Help:      "Monit status availability",
+		}),
+		checkStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "exporter_service_check",
+			Help:      "Monit service check info",
+		},
+			[]string{"check_name", "type", "monitored"},
+		),
+	}, nil
+}
+
+// Describe describes all the metrics ever exported by the monit exporter. It
+// implements prometheus.Collector.
+func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
+	e.up.Describe(ch)
+	e.checkStatus.Describe(ch)
+}
+
+func (e *Exporter) scrape() {
+	data, err := FetchMonitStatus(*monitScrapeURI)
 	if err != nil {
-		fmt.Printf("Error parsing xml response: %v", err)
+		// set "monit_exporter_up" gauge to 0, remove previous metrics from e.checkStatus vector
+		e.up.Set(0)
+		e.checkStatus.Reset()
+		log.Errorf("Error getting monit status: %v", err)
+	} else {
+		err = ParseMonitStatus(data)
+		if err != nil {
+			e.up.Set(0)
+			e.checkStatus.Reset()
+			log.Errorf("Error parsing data from monit: %v", err)
+		} else {
+			e.up.Set(1)
+			// Constructing metrics
+			for _, service := range response.MonitServices {
+				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Status))
+			}
+		}
 	}
-
-	// Constructing metrics
-	for _, service := range response.MonitServices {
-		e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Status))
-	}
-
-	return nil
 }
 
 // Collect fetches the stats from configured monit location and delivers them
@@ -131,12 +146,8 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) error {
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.mutex.Lock() // Protect metrics from concurrent collects.
 	defer e.mutex.Unlock()
-	if err := e.collect(ch); err != nil {
-		log.Printf("Error scraping monit: %s", err)
-		e.scrapeFailures.Inc()
-		e.scrapeFailures.Collect(ch)
-	}
-	spew.Dump(e)
+	e.scrape()
+	e.up.Collect(ch)
 	e.checkStatus.Collect(ch)
 	return
 }
@@ -144,10 +155,14 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 func main() {
 	flag.Parse()
 
-	exporter := NewExporter(*monitScrapeURI)
+	exporter, err := NewExporter(*monitScrapeURI)
+	if err != nil {
+		fmt.Printf("Unable to create exporter")
+		log.Fatal(err)
+	}
 	prometheus.MustRegister(exporter)
 
-	log.Printf("Starting Server: %s", *listeningAddress)
+	log.Printf("Starting monit_exporter: %s", *listeningAddress)
 	http.Handle(*metricsEndpoint, prometheus.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
