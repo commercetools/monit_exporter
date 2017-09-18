@@ -118,13 +118,14 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.checkStatus.Describe(ch)
 }
 
-func (e *Exporter) scrape() {
+func (e *Exporter) scrape()(error) {
 	data, err := FetchMonitStatus(e.URI)
 	if err != nil {
 		// set "monit_exporter_up" gauge to 0, remove previous metrics from e.checkStatus vector
 		e.up.Set(0)
 		e.checkStatus.Reset()
 		log.Errorf("Error getting monit status: %v", err)
+		return err
 	} else {
 		err = ParseMonitStatus(data)
 		if err != nil {
@@ -138,6 +139,7 @@ func (e *Exporter) scrape() {
 				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Status))
 			}
 		}
+		return err
 	}
 }
 
