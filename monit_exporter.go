@@ -119,7 +119,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (e *Exporter) scrape() {
-	data, err := FetchMonitStatus(*monitScrapeURI)
+	data, err := FetchMonitStatus(e.URI)
 	if err != nil {
 		// set "monit_exporter_up" gauge to 0, remove previous metrics from e.checkStatus vector
 		e.up.Set(0)
