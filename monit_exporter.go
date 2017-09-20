@@ -180,7 +180,7 @@ func main() {
 	v.SetConfigType("toml")
 	err := v.ReadInConfig() // Find and read the config file
 	if err != nil {         // Handle errors reading the config file
-		log.Info("Error reading config file: %s. Using defaults.", err)
+		log.Printf("Error reading config file: %s. Using defaults.", err)
 	}
 
 	MonitConfig = &Config{
