@@ -5,13 +5,13 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/log"
+	"github.com/spf13/viper"
 	"golang.org/x/net/html/charset"
 )
 
@@ -19,12 +19,7 @@ const (
 	namespace = "monit" // Prefix for Prometheus metrics.
 )
 
-var (
-	listeningAddress = flag.String("telemetry.address", ":9388", "Address on which to expose metrics.")
-	metricsEndpoint  = flag.String("telemetry.endpoint", "/metrics", "Path under which to expose metrics.")
-	monitScrapeURI   = flag.String("monit.scrape_uri", "http://localhost:2812/_status?format=xml&level=full", "URI to monit status page")
-	insecure         = flag.Bool("insecure", true, "Ignore server certificate if using https")
-)
+var configFile = flag.String("conf", "./config.toml", "Configuration file for exporter")
 
 var serviceTypes = map[int]string{
 	0: "filesystem",
@@ -59,15 +54,32 @@ type Exporter struct {
 	checkStatus *prometheus.GaugeVec
 }
 
+type Config struct {
+	listen_address   string
+	metrics_path     string
+	ignore_ssl       bool
+	monit_scrape_uri string
+	monit_user       string
+	monit_password   string
+}
+
+var MonitConfig *Config
+
 func FetchMonitStatus(uri string) ([]byte, error) {
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: MonitConfig.ignore_ssl},
 		},
 	}
-	resp, err := client.Get(uri)
+
+	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
-		//		log.Fatal("Unable to fetch monit status")
+		log.Errorf("Unable to create request: %v", err)
+	}
+
+	req.SetBasicAuth(MonitConfig.monit_user, MonitConfig.monit_password)
+	resp, err := client.Do(req)
+	if err != nil {
 		log.Error("Unable to fetch monit status")
 		return nil, err
 	}
@@ -118,7 +130,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.checkStatus.Describe(ch)
 }
 
-func (e *Exporter) scrape()(error) {
+func (e *Exporter) scrape() error {
 	data, err := FetchMonitStatus(e.URI)
 	if err != nil {
 		// set "monit_exporter_up" gauge to 0, remove previous metrics from e.checkStatus vector
@@ -157,24 +169,46 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 func main() {
 	flag.Parse()
 
-	exporter, err := NewExporter(*monitScrapeURI)
+	v := viper.New()
+	v.SetDefault("listen_address", "localhost:9388")
+	v.SetDefault("metrics_path", "/metrics")
+	v.SetDefault("ignore_ssl", false)
+	v.SetDefault("monit_scrape_uri", "http://localhost:2812/_status?format=xml&level=full")
+	v.SetDefault("monit_user", "")
+	v.SetDefault("monit_password", "")
+	v.SetConfigFile(*configFile)
+	v.SetConfigType("toml")
+	err := v.ReadInConfig() // Find and read the config file
+	if err != nil {         // Handle errors reading the config file
+		log.Info("Error reading config file: %s. Using defaults.", err)
+	}
+
+	MonitConfig = &Config{
+		listen_address:   v.GetString("listen_address"),
+		metrics_path:     v.GetString("metrics_path"),
+		ignore_ssl:       v.GetBool("ignore_ssl"),
+		monit_scrape_uri: v.GetString("monit_scrape_uri"),
+		monit_user:       v.GetString("monit_user"),
+		monit_password:   v.GetString("monit_password"),
+	}
+
+	exporter, err := NewExporter(MonitConfig.monit_scrape_uri)
 	if err != nil {
-		fmt.Printf("Unable to create exporter")
 		log.Fatal(err)
 	}
 	prometheus.MustRegister(exporter)
 
-	log.Printf("Starting monit_exporter: %s", *listeningAddress)
-	http.Handle(*metricsEndpoint, prometheus.Handler())
+	log.Printf("Starting monit_exporter: %s", MonitConfig.listen_address)
+	http.Handle(MonitConfig.metrics_path, prometheus.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
             <head><title>Monit Exporter</title></head>
             <body>
             <h1>Monit Exporter</h1>
-            <p><a href="` + *metricsEndpoint + `">Metrics</a></p>
+            <p><a href="` + MonitConfig.metrics_path + `">Metrics</a></p>
             </body>
             </html>`))
 	})
 
-	log.Fatal(http.ListenAndServe(*listeningAddress, nil))
+	log.Fatal(http.ListenAndServe(MonitConfig.listen_address, nil))
 }
