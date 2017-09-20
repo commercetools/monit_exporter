@@ -193,8 +193,8 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 func main() {
 
 	config := ParseConfig()
-
 	exporter, err := NewExporter(config)
+
 	if err != nil {
 		log.Fatal(err)
 	}
