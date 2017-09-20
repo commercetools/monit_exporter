@@ -66,6 +66,7 @@ type Config struct {
 var MonitConfig *Config
 
 func FetchMonitStatus(uri string) ([]byte, error) {
+	log.Info(MonitConfig.ignore_ssl)
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: MonitConfig.ignore_ssl},
@@ -92,15 +93,15 @@ func FetchMonitStatus(uri string) ([]byte, error) {
 	return data, nil
 }
 
-func ParseMonitStatus(data []byte) error {
+func ParseMonitStatus(data []byte) (monitXML, error) {
 	reader := bytes.NewReader(data)
 	decoder := xml.NewDecoder(reader)
 
 	// Parsing status results to structure
 	decoder.CharsetReader = charset.NewReaderLabel
-	err := decoder.Decode(&response)
-
-	return err
+	var resp1 monitXML
+	err := decoder.Decode(&resp1)
+	return resp1, err
 }
 
 // Returns an initialized Exporter.
@@ -139,7 +140,7 @@ func (e *Exporter) scrape() error {
 		log.Errorf("Error getting monit status: %v", err)
 		return err
 	} else {
-		err = ParseMonitStatus(data)
+		parsedData, err := ParseMonitStatus(data)
 		if err != nil {
 			e.up.Set(0)
 			e.checkStatus.Reset()
@@ -147,7 +148,7 @@ func (e *Exporter) scrape() error {
 		} else {
 			e.up.Set(1)
 			// Constructing metrics
-			for _, service := range response.MonitServices {
+			for _, service := range parsedData.MonitServices {
 				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Status))
 			}
 		}
@@ -192,6 +193,7 @@ func main() {
 		monit_password:   v.GetString("monit_password"),
 	}
 
+	log.Info(MonitConfig.ignore_ssl)
 	exporter, err := NewExporter(MonitConfig.monit_scrape_uri)
 	if err != nil {
 		log.Fatal(err)
