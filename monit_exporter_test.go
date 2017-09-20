@@ -5,11 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	//"github.com/prometheus/client_golang/prometheus"
 	"fmt"
 	"io/ioutil"
 	"time"
-	"github.com/spf13/viper"
 )
 
 const (
@@ -17,28 +15,6 @@ const (
 )
 
 func TestMonitStatus(t *testing.T) {
-	v := viper.New()
-	v.SetDefault("listen_address", "localhost:9388")
-	v.SetDefault("metrics_path", "/metrics")
-	v.SetDefault("ignore_ssl", false)
-	v.SetDefault("monit_scrape_uri", "http://localhost:2812/_status?format=xml&level=full")
-	v.SetDefault("monit_user", "")
-	v.SetDefault("monit_password", "")
-	v.SetConfigFile(*configFile)
-	v.SetConfigType("toml")
-	err := v.ReadInConfig() // Find and read the config file
-	if err != nil {         // Handle errors reading the config file
-		t.Log("Error reading config file: %s. Using defaults.", err)
-	}
-
-	MonitConfig = &Config{
-		listen_address:   v.GetString("listen_address"),
-		metrics_path:     v.GetString("metrics_path"),
-		ignore_ssl:       v.GetBool("ignore_ssl"),
-		monit_scrape_uri: v.GetString("monit_scrape_uri"),
-		monit_user:       v.GetString("monit_user"),
-		monit_password:   v.GetString("monit_password"),
-	}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(monitStatus))
