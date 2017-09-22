@@ -1,4 +1,18 @@
 language: go
-
 go:
   - 1.9
+script:
+  - go test -v ./...
+  - go build
+  - sha1sum monit_exporter > monit_exporter.sha1
+deploy:
+  provider: releases
+  api_key:
+    secure: AduOv0k9rrco2c0kPG08SOWMtI9+BGBO7Zy8SudJidU6I1gNxIxnX2LqS5OEm2yBobDSiMi04yWZHrY8LBypACMDb+DMRiS6ZnkewnLB9B4O6OlFGN9Xbt1gciU8kirO8Ht3jqWenuVC42sApRCEQFxagscdoImpk/F/n70/uor+d3/eMb0j9yTRzKr2BN4/0EaJxkv+LoaOvnN5I6ALqI1tbOve2AL4XAJqq4wkv5R3IWpZYj+LVpdbn0/T5Q/IWdfi/tqdcBjbhKgwFY+wdvcwR1sISJKl8jUAmgEbb5BsJsyD9N/hRJi/FrujiP3j7uYDETD4FZjClSOzC755Pm6mxP2lnjo/TWlUivinlj14IbASYNbDvKVx8z3LHkMabUYn2eserDlJMokWzdoDNjcRoyXVNWwyQUYnCCs/R8pmZk0GStJDQKNWdTFGeaAUgQJSJJf2Yfl/z6r/bjBlZLV74Xu16jwl7SwKzG4AxEztSjcvMEH1w16UFhWRttsw9vblSnr4D7M/Xwknclk1+hj5wbPGZjT9xz4Wd4kFepVAxHn/5aIwb6TRztFkXRlX1vr+2PW0bM6k7W5QR4mPJQDY64mnwFrEd9MpPnNdigYPVhU03lpVeSNy0j+RqE8u64rvNhA648i46FFC8WIfFxqnX/5t2EbKoC2DZkIdZPY=
+  file:
+    - monit_exporter
+    - monit_exporter.sha1
+  skip_cleanup: true
+  on:
+    repo: commercetools/monit_exporter
+    tags: true
