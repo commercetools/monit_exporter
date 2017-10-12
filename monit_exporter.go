@@ -25,6 +25,7 @@ var serviceTypes = map[int]string{
 	0: "filesystem",
 	2: "file",
 	3: "program with pidfile",
+	4: "remote host",
 	5: "system",
 	7: "program with path",
 }
