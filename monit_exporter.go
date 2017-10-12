@@ -23,11 +23,14 @@ var configFile = flag.String("conf", "./config.toml", "Configuration file for ex
 
 var serviceTypes = map[int]string{
 	0: "filesystem",
+	1: "directory",
 	2: "file",
 	3: "program with pidfile",
 	4: "remote host",
 	5: "system",
+	6: "fifo",
 	7: "program with path",
+	8: "network",
 }
 
 type monitXML struct {
