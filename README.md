@@ -27,3 +27,4 @@ Parameter | Description | Default
 `monit_scrape_uri` | uri to get monit status | http://localhost:2812/_status?format=xml&level=full
 `monit_user` | user for monit basic auth, if needed | none
 `monit_password` | password for monit status, if needed | none
+
