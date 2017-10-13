@@ -188,6 +188,7 @@ func (e *Exporter) scrape() error {
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.mutex.Lock() // Protect metrics from concurrent collects.
 	defer e.mutex.Unlock()
+	e.checkStatus.Reset()
 	e.scrape()
 	e.up.Collect(ch)
 	e.checkStatus.Collect(ch)
