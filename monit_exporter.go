@@ -25,11 +25,11 @@ var serviceTypes = map[int]string{
 	0: "filesystem",
 	1: "directory",
 	2: "file",
-	3: "program with pidfile",
-	4: "remote host",
+	3: "progPidfile",
+	4: "remoteHost",
 	5: "system",
 	6: "fifo",
-	7: "program with path",
+	7: "progPath",
 	8: "network",
 }
 
@@ -169,33 +169,33 @@ func NewExporter(c *Config) (*Exporter, error) {
 		config: c,
 		up: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "exporter_up",
+			Name:      "up",
 			Help:      "Monit status availability",
 		}),
 		checkStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "exporter_service_check",
+			Name:      "service_check",
 			Help:      "Monit service check info",
 		},
 			[]string{"check_name", "type", "monitored"},
 		),
 		checkMem: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "exporter_service_mem_bytes",
+			Name:      "service_mem_bytes",
 			Help:      "Monit service mem info",
 		},
 			[]string{"check_name", "type"},
 		),
 		checkCPU: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "exporter_service_cpu_perc",
+			Name:      "service_cpu_perc",
 			Help:      "Monit service CPU info",
 		},
 			[]string{"check_name", "type"},
 		),
 		checkDisk: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "exporter_service_write_bytes",
+			Name:      "service_write_bytes",
 			Help:      "Monit service Disk Writes Bytes",
 		},
 			[]string{"check_name", "type"},
@@ -241,12 +241,12 @@ func (e *Exporter) scrape() error {
 					prometheus.Labels{
 						"check_name": service.Name,
 						"type":       "kilobyte",
-					}).Set(float64(service.Memory.Kilobyte))
+					}).Set(float64(service.Memory.Kilobyte * 1024))
 				e.checkMem.With(
 					prometheus.Labels{
 						"check_name": service.Name,
 						"type":       "kilobyteTotal",
-					}).Set(float64(service.Memory.KilobyteTotal))
+					}).Set(float64(service.Memory.KilobyteTotal * 1024))
 				e.checkCPU.With(
 					prometheus.Labels{
 						"check_name": service.Name,
@@ -267,7 +267,6 @@ func (e *Exporter) scrape() error {
 						"check_name": service.Name,
 						"type":       "write_count_total",
 					}).Set(float64(service.DiskWrite.Bytes.Total))
-
 			}
 		}
 		return err
