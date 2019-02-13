@@ -39,10 +39,34 @@ type monitXML struct {
 
 // Simplified structure of monit check.
 type monitService struct {
-	Type      int    `xml:"type,attr"`
-	Name      string `xml:"name"`
-	Status    int    `xml:"status"`
-	Monitored string `xml:"monitor"`
+	Type      int              `xml:"type,attr"`
+	Name      string           `xml:"name"`
+	Status    int              `xml:"status"`
+	Monitored string           `xml:"monitor"`
+	Memory    monitServiceMem  `xml:"memory"`
+	CPU       monitServiceCPU  `xml:"cpu"`
+	DiskWrite monitServiceDisk `xml:"write"`
+}
+
+type monitServiceMem struct {
+	Percent       float64 `xml:"percent,attr"`
+	PercentTotal  float64 `xml:"percenttotal"`
+	Kilobyte      int     `xml:"kilobyte"`
+	KilobyteTotal int     `xml:"kilobytetotal"`
+}
+
+type monitServiceCPU struct {
+	Percent      float64 `xml:"percent,attr"`
+	PercentTotal float64 `xml:"percenttotal"`
+}
+
+type monitServiceDisk struct {
+	Bytes monitBytes `xml:"bytes"`
+}
+
+type monitBytes struct {
+	Count int `xml:"count"`
+	Total int `xml:"total"`
 }
 
 // Exporter collects monit stats from the given URI and exports them using
@@ -54,8 +78,12 @@ type Exporter struct {
 
 	up          prometheus.Gauge
 	checkStatus *prometheus.GaugeVec
+	checkMem    *prometheus.GaugeVec
+	checkCPU    *prometheus.GaugeVec
+	checkDisk   *prometheus.GaugeVec
 }
 
+// Config is the exporter config
 type Config struct {
 	listen_address   string
 	metrics_path     string
@@ -65,6 +93,7 @@ type Config struct {
 	monit_password   string
 }
 
+// FetchMonitStatus gather metrics from Monit API
 func FetchMonitStatus(c *Config) ([]byte, error) {
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -92,6 +121,7 @@ func FetchMonitStatus(c *Config) ([]byte, error) {
 	return data, nil
 }
 
+// ParseMonitStatus parse XML data and return it to struct
 func ParseMonitStatus(data []byte) (monitXML, error) {
 	var statusChunk monitXML
 	reader := bytes.NewReader(data)
@@ -103,6 +133,7 @@ func ParseMonitStatus(data []byte) (monitXML, error) {
 	return statusChunk, err
 }
 
+// ParseConfig parse exporter binary options from command line
 func ParseConfig() *Config {
 	flag.Parse()
 
@@ -131,7 +162,7 @@ func ParseConfig() *Config {
 	}
 }
 
-// Returns an initialized Exporter.
+// NewExporter returns an initialized Exporter.
 func NewExporter(c *Config) (*Exporter, error) {
 
 	return &Exporter{
@@ -148,6 +179,27 @@ func NewExporter(c *Config) (*Exporter, error) {
 		},
 			[]string{"check_name", "type", "monitored"},
 		),
+		checkMem: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "exporter_service_mem_bytes",
+			Help:      "Monit service mem info",
+		},
+			[]string{"check_name", "type"},
+		),
+		checkCPU: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "exporter_service_cpu_perc",
+			Help:      "Monit service CPU info",
+		},
+			[]string{"check_name", "type"},
+		),
+		checkDisk: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "exporter_service_write_bytes",
+			Help:      "Monit service Disk Writes Bytes",
+		},
+			[]string{"check_name", "type"},
+		),
 	}, nil
 }
 
@@ -156,6 +208,9 @@ func NewExporter(c *Config) (*Exporter, error) {
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.up.Describe(ch)
 	e.checkStatus.Describe(ch)
+	e.checkMem.Describe(ch)
+	e.checkDisk.Describe(ch)
+	e.checkCPU.Describe(ch)
 }
 
 func (e *Exporter) scrape() error {
@@ -176,7 +231,43 @@ func (e *Exporter) scrape() error {
 			e.up.Set(1)
 			// Constructing metrics
 			for _, service := range parsedData.MonitServices {
-				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Status))
+				e.checkStatus.With(
+					prometheus.Labels{
+						"check_name": service.Name,
+						"type":       serviceTypes[service.Type],
+						"monitored":  service.Monitored,
+					}).Set(float64(service.Status))
+				e.checkMem.With(
+					prometheus.Labels{
+						"check_name": service.Name,
+						"type":       "kilobyte",
+					}).Set(float64(service.Memory.Kilobyte))
+				e.checkMem.With(
+					prometheus.Labels{
+						"check_name": service.Name,
+						"type":       "kilobyteTotal",
+					}).Set(float64(service.Memory.KilobyteTotal))
+				e.checkCPU.With(
+					prometheus.Labels{
+						"check_name": service.Name,
+						"type":       "percentage",
+					}).Set(float64(service.CPU.Percent))
+				e.checkCPU.With(
+					prometheus.Labels{
+						"check_name": service.Name,
+						"type":       "percentage_total",
+					}).Set(float64(service.CPU.PercentTotal))
+				e.checkDisk.With(
+					prometheus.Labels{
+						"check_name": service.Name,
+						"type":       "write_count",
+					}).Set(float64(service.DiskWrite.Bytes.Count))
+				e.checkDisk.With(
+					prometheus.Labels{
+						"check_name": service.Name,
+						"type":       "write_count_total",
+					}).Set(float64(service.DiskWrite.Bytes.Total))
+
 			}
 		}
 		return err
@@ -192,6 +283,9 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.scrape()
 	e.up.Collect(ch)
 	e.checkStatus.Collect(ch)
+	e.checkMem.Collect(ch)
+	e.checkCPU.Collect(ch)
+	e.checkDisk.Collect(ch)
 	return
 }
 
