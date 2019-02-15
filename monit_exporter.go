@@ -139,7 +139,7 @@ func ParseConfig() *Config {
 
 	v := viper.New()
 
-	v.SetDefault("listen_address", "localhost:9388")
+	v.SetDefault("listen_address", "0.0.0.0:9388")
 	v.SetDefault("metrics_path", "/metrics")
 	v.SetDefault("ignore_ssl", false)
 	v.SetDefault("monit_scrape_uri", "http://localhost:2812/_status?format=xml&level=full")
