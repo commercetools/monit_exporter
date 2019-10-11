@@ -43,6 +43,7 @@ type monitService struct {
 	Name      string `xml:"name"`
 	Status    int    `xml:"status"`
 	Monitored string `xml:"monitor"`
+	Pid       int    `xml:"pid"`
 }
 
 // Exporter collects monit stats from the given URI and exports them using
@@ -54,6 +55,7 @@ type Exporter struct {
 
 	up          prometheus.Gauge
 	checkStatus *prometheus.GaugeVec
+	checkPid    *prometheus.GaugeVec
 }
 
 type Config struct {
@@ -148,6 +150,13 @@ func NewExporter(c *Config) (*Exporter, error) {
 		},
 			[]string{"check_name", "type", "monitored"},
 		),
+		checkPid: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "exporter_service_pid",
+			Help:      "Monit service pid info",
+		},
+			[]string{"check_name", "type", "monitored"},
+		),
 	}, nil
 }
 
@@ -156,6 +165,7 @@ func NewExporter(c *Config) (*Exporter, error) {
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.up.Describe(ch)
 	e.checkStatus.Describe(ch)
+	e.checkPid.Describe(ch)
 }
 
 func (e *Exporter) scrape() error {
@@ -164,6 +174,7 @@ func (e *Exporter) scrape() error {
 		// set "monit_exporter_up" gauge to 0, remove previous metrics from e.checkStatus vector
 		e.up.Set(0)
 		e.checkStatus.Reset()
+		e.checkPid.Reset()
 		log.Errorf("Error getting monit status: %v", err)
 		return err
 	} else {
@@ -171,12 +182,16 @@ func (e *Exporter) scrape() error {
 		if err != nil {
 			e.up.Set(0)
 			e.checkStatus.Reset()
+			e.checkPid.Reset()
 			log.Errorf("Error parsing data from monit: %v", err)
 		} else {
 			e.up.Set(1)
 			// Constructing metrics
 			for _, service := range parsedData.MonitServices {
 				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Status))
+				if service.Type != 5 {
+					e.checkPid.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Pid))
+				}
 			}
 		}
 		return err
@@ -192,6 +207,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.scrape()
 	e.up.Collect(ch)
 	e.checkStatus.Collect(ch)
+	e.checkPid.Collect(ch)
 	return
 }
 
