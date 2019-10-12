@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/log"
 	"github.com/spf13/viper"
 	"golang.org/x/net/html/charset"
@@ -222,7 +223,7 @@ func main() {
 	prometheus.MustRegister(exporter)
 
 	log.Printf("Starting monit_exporter: %s", config.listen_address)
-	http.Handle(config.metrics_path, prometheus.Handler())
+	http.Handle(config.metrics_path, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
             <head><title>Monit Exporter</title></head>
